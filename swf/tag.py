@@ -832,7 +832,7 @@ class TagDefineBitsLossless(DefinitionTag):
     bitmap_height = 0
     bitmap_color_size = 0
     zlib_bitmap_data = None
-    padded_width = 0
+
     def __init__(self):
         super(TagDefineBitsLossless, self).__init__()
 
@@ -844,69 +844,86 @@ class TagDefineBitsLossless(DefinitionTag):
         self.bitmap_width = data.readUI16()
         self.bitmap_height = data.readUI16()
         if self.bitmap_format == BitmapFormat.BIT_8:
-            self.bitmap_color_size = data.readUI8()
+            self.bitmap_color_size = data.readUI8() + 1
             self.zlib_bitmap_data = data.f.read(length-8)
         else:
             self.zlib_bitmap_data = data.f.read(length-7)
 
-        # decompress zlib encoded bytes
+        # Decompress zlib encoded bitmap.
         compressed_length = len(self.zlib_bitmap_data)
         zip = zlib.decompressobj()
-        temp = StringIO.StringIO()
-        temp.write(zip.decompress(self.zlib_bitmap_data))
-        temp.seek(0, 2)
-        uncompressed_length = temp.tell()
-        temp.seek(0)
+        bitmap = StringIO.StringIO()
+        bitmap.write(zip.decompress(self.zlib_bitmap_data))
 
-        # padding : should be aligned to 32 bit boundary
-        self.padded_width = self.bitmap_width
-        while self.padded_width % 4 != 0:
-            self.padded_width += 1
-        t = self.padded_width * self.bitmap_height
+        # Get the uncompressed size of the bitmap by moving the position to
+        # the end of the stream, getting the position, and then moving the
+        # position to the beginning of the stream.
+        # TODO: os.SEEK_END should be used rather than literal 2. This
+        # constant was added in version 2.5. Do versions below 2.5 need
+        # to be supported?
+        bitmap.seek(0, 2)
+        uncompressed_length = bitmap.tell()
+        bitmap.seek(0)
 
         is_lossless2 = (type(self) == TagDefineBitsLossless2)
         im = None
         self.bitmapData = StringIO.StringIO()
 
-        indexed_colors = []
         if self.bitmap_format == BitmapFormat.BIT_8:
-            for i in range(0, self.bitmap_color_size + 1):
-                r = ord(temp.read(1))
-                g = ord(temp.read(1))
-                b = ord(temp.read(1))
-                a = ord(temp.read(1)) if is_lossless2 else 0xff
-                indexed_colors.append(struct.pack("BBBB", r, g, b, a))
+            # In a SWF, each row of pixels is comprised of 4 byte (32 bit)
+            # words. If the number of bytes in each row is not evenly
+            # divisible by 4, padding bytes are added.
+            if 0 == self.bitmap_width % 4:
+                num_padding_bytes = 0
+            else:
+                num_padding_bytes = 4 - (self.bitmap_width % 4)
+
+            # Read color data.
+            color_table_rgb = []
+            for i in range(self.bitmap_color_size):
+                r = ord(bitmap.read(1))
+                g = ord(bitmap.read(1))
+                b = ord(bitmap.read(1))
+                a = ord(bitmap.read(1)) if is_lossless2 else 0xff
+                color_table_rgb.append(struct.pack("BBBB", r, g, b, a))
 
             # create the image buffer
-            s = StringIO.StringIO()
-            for i in xrange(t):
-                s.write(indexed_colors[ord(temp.read(1))])
-            self.image_buffer = s.getvalue()
-            s.close()
+            colormap_pixel_data = StringIO.StringIO()
+            for y in xrange(self.bitmap_height):
+                for x in xrange(self.bitmap_width):
+                    color_table_index = ord(bitmap.read(1))
+                    colormap_pixel_data.write(color_table_rgb[color_table_index])
 
-            im = Image.fromstring("RGBA", (self.padded_width, self.bitmap_height), self.image_buffer)
-            im = im.crop((0, 0, self.bitmap_width, self.bitmap_height))
+                # Discard padding bytes.
+                for x in xrange(num_padding_bytes):
+                    bitmap.read(1)
+
+            self.image_buffer = colormap_pixel_data.getvalue()
+            colormap_pixel_data.close()
 
         elif self.bitmap_format == BitmapFormat.BIT_15:
             raise Exception("DefineBitsLossless: BIT_15 not yet implemented")
         elif self.bitmap_format == BitmapFormat.BIT_24:
-            # we have no padding, since PIX24s are 32-bit aligned
-            t = self.bitmap_width * self.bitmap_height
+            # We have no padding, since PIX24s are 32-bit aligned
+            num_pixels = self.bitmap_width * self.bitmap_height
+
             # read PIX24's
-            s = StringIO.StringIO()
-            for i in range(0, t):
+            pixels = StringIO.StringIO()
+            for i in range(num_pixels):
                 if not is_lossless2:
-                    temp.read(1) # reserved, always 0
-                a = ord(temp.read(1)) if is_lossless2 else 0xff
-                r = ord(temp.read(1))
-                g = ord(temp.read(1))
-                b = ord(temp.read(1))
-                s.write(struct.pack("BBBB", r, g, b, a))
-            self.image_buffer = s.getvalue()
-            im = Image.fromstring("RGBA", (self.bitmap_width, self.bitmap_height), self.image_buffer)
+                    bitmap.read(1) # reserved, always 0
+                a = ord(bitmap.read(1)) if is_lossless2 else 0xff
+                r = ord(bitmap.read(1))
+                g = ord(bitmap.read(1))
+                b = ord(bitmap.read(1))
+                pixels.write(struct.pack("BBBB", r, g, b, a))
+
+            self.image_buffer = pixels.getvalue()
+            pixels.close()
         else:
             raise Exception("unhandled bitmap format! %s %d" % (BitmapFormat.tostring(self.bitmap_format), self.bitmap_format))
 
+        im = Image.fromstring("RGBA", (self.bitmap_width, self.bitmap_height), self.image_buffer)
         if not im is None:
             im.save(self.bitmapData, "PNG")
             self.bitmapData.seek(0)
