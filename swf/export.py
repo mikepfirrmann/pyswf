@@ -454,6 +454,20 @@ class BaseExporter(object):
         tag.shapes.export(self.shape_exporter)
 
     def export_define_shapes(self, tags):
+        # Since the order of definition does not affect display and since
+        # <image> elements must be inserted into the SVG DOM _before_ any shape
+        # element that references them, insert elements for image tags,
+        # i.e. DefineBits..., before anything else
+
+        def image_filter(tag):
+            return isinstance(tag, TagDefineBits) or isinstance(tag, TagDefineBitsLossless)
+
+        for tag in filter(image_filter, tags):
+            if isinstance(tag, TagDefineBits):
+                self.export_define_bits(tag)
+            elif isinstance(tag, TagDefineBitsLossless):
+                self.export_define_bits_lossless(tag)
+
         for tag in tags:
             if isinstance(tag, SWFTimelineContainer):
                 self.export_define_sprite(tag)
@@ -463,10 +477,6 @@ class BaseExporter(object):
             elif isinstance(tag, TagJPEGTables):
                 if tag.length > 0:
                     self.jpegTables = tag.jpegTables
-            elif isinstance(tag, TagDefineBits):
-                self.export_define_bits(tag)
-            elif isinstance(tag, TagDefineBitsLossless):
-                self.export_define_bits_lossless(tag)
             elif isinstance(tag, TagDefineFont):
                 self.export_define_font(tag)
             elif isinstance(tag, TagDefineText):
