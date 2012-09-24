@@ -1398,9 +1398,11 @@ class SWFButtonRecord(_dumb_repr):
         return "[SWFButtonRecord %r]" % self.__dict__
 
 class SWFButtonCondAction(_dumb_repr):
-    def __init__(self, data=None):
+    def __init__(self, data=None, isLast=False):
         if not data is None:
             self.parse(data)
+
+        self.isLast = isLast
 
     def parse(self, data):
         self.idleToOverDown = data.readUB(1) == 1

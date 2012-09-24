@@ -1,1 +1,9 @@
 *.pyc
+build
+pyswf.egg-info
+data
+dist
+*.sublime-*
+*.swf
+*.svg
+*.png

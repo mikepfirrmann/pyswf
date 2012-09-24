@@ -563,16 +563,23 @@ class SVGExporter(BaseExporter):
         super(SVGExporter, self).export_define_sprite(tag, g)
 
     def export_define_font(self, tag):
-        fontInfo = self.fontInfos[tag.characterId]
-        if not fontInfo.useGlyphText:
-            return
+        try:
+            fontInfo = self.fontInfos[tag.characterId]
+
+            if not fontInfo.useGlyphText:
+                return
+        except:
+            fontInfo = False
 
         defs = self._e.defs(id="font_{0}".format(tag.characterId))
 
         for index, glyph in enumerate(tag.glyphShapeTable):
             # Export the glyph as a shape and add the path to the "defs"
             # element to be referenced later when exporting text.
-            code_point = fontInfo.codeTable[index]
+            if fontInfo:
+                code_point = fontInfo.codeTable[index]
+            else:
+                code_point = index
             pathGroup = glyph.export().g.getchildren()
 
             if len(pathGroup):
@@ -606,20 +613,27 @@ class SVGExporter(BaseExporter):
                 y = rec.yOffset/PIXELS_PER_TWIP
 
             size = rec.textHeight/PIXELS_PER_TWIP
-            fontInfo = self.fontInfos[rec.fontId]
+            try:
+                fontInfo = self.fontInfos[rec.fontId]
+            except:
+                fontInfo = False
 
-            if not fontInfo.useGlyphText:
+
+            if not fontInfo or not fontInfo.useGlyphText:
                 inner_text = ""
                 xValues = []
 
             for glyph in rec.glyphEntries:
-                code_point = fontInfo.codeTable[glyph.index]
+                if fontInfo:
+                    code_point = fontInfo.codeTable[glyph.index]
 
-                # Ignore control characters
-                if code_point in range(32):
-                    continue
+                    # Ignore control characters
+                    if code_point in range(32):
+                        continue
+                else:
+                    code_point = glyph.index
 
-                if fontInfo.useGlyphText:
+                if not fontInfo or fontInfo.useGlyphText:
                     use = self._e.use()
                     use.set(XLINK_HREF, "#font_{0}_{1}".format(rec.fontId, code_point))
 
@@ -640,7 +654,7 @@ class SVGExporter(BaseExporter):
 
                 x = x + float(glyph.advance)/PIXELS_PER_TWIP
 
-            if not fontInfo.useGlyphText:
+            if fontInfo and not fontInfo.useGlyphText:
                 text = self._e.text(inner_text)
 
                 text.set("font-family", fontInfo.fontName)

@@ -46,22 +46,22 @@ class SWFHeader(object):
     def frame_count(self):
         """ Return number of frames """
         return self._frame_count
-                
+
     @property
     def file_length(self):
         """ Return uncompressed file length """
         return self._file_length
-                    
+
     @property
     def version(self):
         """ Return SWF version """
         return self._version
-                
+
     @property
     def compressed(self):
         """ Whether the SWF is compressed using ZLIB """
         return self._compressed
-        
+
     def __str__(self):
         return "   [SWFHeader]\n" + \
             "       Version: %d\n" % self.version + \
@@ -73,13 +73,13 @@ class SWFHeader(object):
 class SWF(SWFTimelineContainer):
     """
     SWF class
-    
-    The SWF (pronounced 'swiff') file format delivers vector graphics, text, 
+
+    The SWF (pronounced 'swiff') file format delivers vector graphics, text,
     video, and sound over the Internet and is supported by Adobe Flash
-    Player software. The SWF file format is designed to be an efficient 
-    delivery format, not a format for exchanging graphics between graphics 
+    Player software. The SWF file format is designed to be an efficient
+    delivery format, not a format for exchanging graphics between graphics
     editors.
-    
+
     @param file: a file object with read(), seek(), tell() methods.
     """
     def __init__(self, file=None):
@@ -88,27 +88,27 @@ class SWF(SWFTimelineContainer):
         self._header = None
         if self._data is not None:
             self.parse(self._data)
-    
+
     @property
     def data(self):
         """
         Return the SWFStream object (READ ONLY)
         """
         return self._data
-    
+
     @property
     def header(self):
         """ Return the SWFHeader """
         return self._header
-        
+
     def export(self, exporter=None, force_stroke=False):
         """
-        Export this SWF using the specified exporter. 
-        When no exporter is passed in the default exporter used 
+        Export this SWF using the specified exporter.
+        When no exporter is passed in the default exporter used
         is swf.export.SVGExporter.
-        
+
         Exporters should extend the swf.export.BaseExporter class.
-        
+
         @param exporter : the exporter to use
         @param force_stroke : set to true to force strokes on fills,
                               useful for some edge cases.
@@ -119,15 +119,15 @@ class SWF(SWFTimelineContainer):
         if len(self.tags) == 0:
             raise Exception("This SWF doesn't contain any tags!")
         return exporter.export(self, force_stroke)
-            
+
     def parse_file(self, filename):
         """ Parses the SWF from a filename """
         self.parse(open(filename, 'rb'))
-        
+
     def parse(self, data):
-        """ 
+        """
         Parses the SWF.
-        
+
         The @data parameter can be a file object or a SWFStream
         """
         self._data = data = data if isinstance(data, SWFStream) else SWFStream(data)
@@ -144,11 +144,11 @@ class SWF(SWFTimelineContainer):
             self._header._frame_rate = data.readFIXED8()
             self._header._frame_count = data.readUI16()
         self.parse_tags(data)
-        
+
     def __str__(self):
         s = "[SWF]\n"
         s += self._header.__str__()
         for tag in self.tags:
             s += tag.__str__() + "\n"
         return s
-        
+

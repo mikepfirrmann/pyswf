@@ -2466,7 +2466,7 @@ class TagDefineButton2(DefinitionTag):
         self.buttonCharacters = data.readBUTTONRECORDs(version = 2)
 
         if self.actionOffset:
-            # if we have actions, seek to the first one
+            # If we have actions, seek to the first one.
             data.seek(offs + self.actionOffset)
             self.buttonActions = data.readBUTTONCONDACTIONSs()
 
