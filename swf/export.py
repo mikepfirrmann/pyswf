@@ -24,6 +24,8 @@ SVG_VERSION = "1.1"
 SVG_NS      = "http://www.w3.org/2000/svg"
 XLINK_NS    = "http://www.w3.org/1999/xlink"
 XLINK_HREF  = "{%s}href" % XLINK_NS
+XML_NS = "http://www.w3.org/1999/xml"
+XML_SPACE = "{%s}space" % XML_NS
 NS = {"svg" : SVG_NS, "xlink" : XLINK_NS}
 
 PIXELS_PER_TWIP = 20
@@ -477,6 +479,8 @@ class BaseExporter(object):
             elif isinstance(tag, TagJPEGTables):
                 if tag.length > 0:
                     self.jpegTables = tag.jpegTables
+            elif isinstance(tag, TagDefineFont2):
+                self.export_define_font2(tag)
             elif isinstance(tag, TagDefineFont):
                 self.export_define_font(tag)
             elif isinstance(tag, TagDefineText):
@@ -513,7 +517,7 @@ class BaseExporter(object):
 class SVGExporter(BaseExporter):
     def __init__(self, swf=None, margin=0):
         self._e = objectify.ElementMaker(annotate=False,
-                        namespace=SVG_NS, nsmap={None : SVG_NS, "xlink" : XLINK_NS})
+                        namespace=SVG_NS, nsmap={None : SVG_NS, "xlink" : XLINK_NS, "xml": XML_NS})
         self._margin = margin
         super(SVGExporter, self).__init__(swf)
 
@@ -540,8 +544,8 @@ class SVGExporter(BaseExporter):
         # Setup svg @width, @height and @viewBox
         # and add the optional margin
         self.bounds = SVGBounds(self.svg)
-        self.svg.set("width", "%dpx" % round(self.bounds.width))
-        self.svg.set("height", "%dpx" % round(self.bounds.height))
+        # self.svg.set("width", "%dpx" % round(self.bounds.width))
+        # self.svg.set("height", "%dpx" % round(self.bounds.height))
         if self._margin > 0:
             self.bounds.grow(self._margin)
         vb = [self.bounds.minx, self.bounds.miny,
@@ -563,23 +567,18 @@ class SVGExporter(BaseExporter):
         super(SVGExporter, self).export_define_sprite(tag, g)
 
     def export_define_font(self, tag):
-        try:
-            fontInfo = self.fontInfos[tag.characterId]
-
-            if not fontInfo.useGlyphText:
-                return
-        except:
-            fontInfo = False
+        fontInfo = self.fontInfos[tag.characterId]
+        # If we do not need to use use Glyph text, do not export the font
+        # and use a device font instead.
+        if not fontInfo.useGlyphText:
+            return
 
         defs = self._e.defs(id="font_{0}".format(tag.characterId))
 
         for index, glyph in enumerate(tag.glyphShapeTable):
             # Export the glyph as a shape and add the path to the "defs"
             # element to be referenced later when exporting text.
-            if fontInfo:
-                code_point = fontInfo.codeTable[index]
-            else:
-                code_point = index
+            code_point = fontInfo.codeTable[index]
             pathGroup = glyph.export().g.getchildren()
 
             if len(pathGroup):
@@ -588,7 +587,38 @@ class SVGExporter(BaseExporter):
                 path.set("id", "font_{0}_{1}".format(tag.characterId, code_point))
 
                 # SWF glyphs are always defined on an EM square of 1024 by 1024 units.
-                path.set("transform", "scale({0})".format(float(1)/EM_SQUARE_LENGTH))
+                scale = 1.0 / EM_SQUARE_LENGTH
+                path.set("transform", "scale({0})".format(scale))
+
+                # We'll be setting the color on the USE element that
+                # references this element.
+                del path.attrib["stroke"]
+                del path.attrib["fill"]
+
+                defs.append(path)
+
+        self.defs.append(defs)
+
+    def export_define_font2(self, tag):
+        defs = self._e.defs(id="font_{0}".format(tag.characterId))
+
+        for index, glyph in enumerate(tag.glyphShapeTable):
+            # Export the glyph as a shape and add the path to the "defs"
+            # element to be referenced later when exporting text.
+            code_point = tag.codeTable[index]
+            pathGroup = glyph.export().g.getchildren()
+
+            if len(pathGroup):
+                path = pathGroup[0]
+
+                path.set("id", "font_{0}_{1}".format(tag.characterId, code_point))
+
+                # SWF glyphs are always defined on an EM square of 1024 by 1024 units.
+                # TODO: why does this work? What is 50? Once that is
+                # determined, this method can probably be combined with
+                # export_define_font.
+                scale = 1.0 / 50
+                path.set("transform", "scale({0})".format(scale))
 
                 # We'll be setting the color on the USE element that
                 # references this element.
@@ -603,75 +633,99 @@ class SVGExporter(BaseExporter):
         g = self._e.g(id="c{0}".format(int(tag.characterId)))
         g.set("class", "text_content")
 
-        x = 0
-        y = 0
+        self.text_x = 0
+        self.text_y = 0
 
         for rec in tag.records:
-            if rec.hasXOffset:
-                x = rec.xOffset/PIXELS_PER_TWIP
-            if rec.hasYOffset:
-                y = rec.yOffset/PIXELS_PER_TWIP
-
-            size = rec.textHeight/PIXELS_PER_TWIP
-            try:
-                fontInfo = self.fontInfos[rec.fontId]
-            except:
-                fontInfo = False
-
-
-            if not fontInfo or not fontInfo.useGlyphText:
-                inner_text = ""
-                xValues = []
-
-            for glyph in rec.glyphEntries:
-                if fontInfo:
-                    code_point = fontInfo.codeTable[glyph.index]
-
-                    # Ignore control characters
-                    if code_point in range(32):
-                        continue
+            if rec.fontId in self.fontInfos:
+                font = self.fontInfos[rec.fontId]
+                if font.useGlyphText:
+                    self.export_glyph_text(g, rec, font)
                 else:
-                    code_point = glyph.index
-
-                if not fontInfo or fontInfo.useGlyphText:
-                    use = self._e.use()
-                    use.set(XLINK_HREF, "#font_{0}_{1}".format(rec.fontId, code_point))
-
-                    use.set(
-                        'transform',
-                        "scale({0}) translate({1} {2})".format(
-                            size, float(x)/size, float(y)/size
-                        )
-                    )
-
-                    color = ColorUtils.to_rgb_string(ColorUtils.rgb(rec.textColor))
-                    use.set("style", "fill: {0}; stroke: {0}".format(color))
-
-                    g.append(use)
+                    self.export_device_text(g, rec, font)
+            elif rec.fontId in self.fonts:
+                font = self.fonts[rec.fontId]
+                if isinstance(font, TagDefineFont2):
+                    self.export_device_text(g, rec, font)
                 else:
-                    inner_text += unichr(code_point)
-                    xValues.append(str(x))
-
-                x = x + float(glyph.advance)/PIXELS_PER_TWIP
-
-            if fontInfo and not fontInfo.useGlyphText:
-                text = self._e.text(inner_text)
-
-                text.set("font-family", fontInfo.fontName)
-                text.set("font-size", str(size))
-                text.set("fill", ColorUtils.to_rgb_string(ColorUtils.rgb(rec.textColor)))
-
-                text.set("y", str(y))
-                text.set("x", " ".join(xValues))
-
-                if fontInfo.bold:
-                    text.set("font-weight", "bold")
-                if fontInfo.italic:
-                    text.set("font-style", "italic")
-
-                g.append(text)
+                    raise Exception("Invalid font info found")
+            else:
+                raise Exception("Invalid font info found")
 
         self.defs.append(g)
+
+    def export_device_text(self, parent, text_record, font):
+        if text_record.hasXOffset:
+            self.text_x = text_record.xOffset / PIXELS_PER_TWIP
+        if text_record.hasYOffset:
+            self.text_y = text_record.yOffset / PIXELS_PER_TWIP
+
+        size = text_record.textHeight / PIXELS_PER_TWIP
+
+        inner_text = ""
+        xValues = []
+
+        for glyph in text_record.glyphEntries:
+            code_point = font.codeTable[glyph.index]
+
+            # Ignore control characters
+            if code_point in range(31):
+                continue
+
+            inner_text += unichr(code_point)
+            xValues.append(str(self.text_x))
+            self.text_x = self.text_x + float(glyph.advance) / PIXELS_PER_TWIP
+
+        text = self._e.text(inner_text)
+
+        fontName = ""
+        for letter in font.fontName:
+            if ord(letter) in range(31):
+                continue
+            fontName += letter
+
+        text.set("font-family", fontName)
+        text.set("font-size", str(size))
+        text.set("fill", ColorUtils.to_rgb_string(ColorUtils.rgb(text_record.textColor)))
+
+        text.set("y", str(self.text_y))
+        text.set("x", " ".join(xValues))
+        text.set(XML_SPACE, "preserve")
+
+        if font.bold:
+            text.set("font-weight", "bold")
+        if font.italic:
+            text.set("font-style", "italic")
+
+        parent.append(text)
+
+    def export_glyph_text(self, parent, text_record, font):
+        if text_record.hasXOffset:
+            self.text_x = text_record.xOffset / PIXELS_PER_TWIP
+        if text_record.hasYOffset:
+            self.text_y = text_record.yOffset / PIXELS_PER_TWIP
+
+        size = text_record.textHeight/PIXELS_PER_TWIP
+
+        for glyph in text_record.glyphEntries:
+            code_point = font.codeTable[glyph.index]
+
+            use = self._e.use(unichr(code_point))
+            use.set(XLINK_HREF, "#font_{0}_{1}".format(text_record.fontId, code_point))
+
+            use.set(
+                'transform',
+                "scale({0}) translate({1} {2})".format(
+                    size, float(self.text_x)/size, float(self.text_y)/size
+                )
+            )
+
+            color = ColorUtils.to_rgb_string(ColorUtils.rgb(text_record.textColor))
+            use.set("style", "fill: {0}; stroke: {0}".format(color))
+
+            parent.append(use)
+
+            self.text_x = self.text_x + float(glyph.advance) / PIXELS_PER_TWIP
 
     def export_define_shape(self, tag):
         self.shape_exporter.force_stroke = self.force_stroke
