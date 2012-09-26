@@ -632,6 +632,7 @@ class SVGExporter(BaseExporter):
     def export_define_text(self, tag):
         g = self._e.g(id="c{0}".format(int(tag.characterId)))
         g.set("class", "text_content")
+        g.set("transform", _swf_matrix_to_svg_matrix(tag.textMatrix))
 
         self.text_x = 0
         self.text_y = 0
@@ -705,7 +706,7 @@ class SVGExporter(BaseExporter):
         if text_record.hasYOffset:
             self.text_y = text_record.yOffset / PIXELS_PER_TWIP
 
-        size = text_record.textHeight/PIXELS_PER_TWIP
+        size = text_record.textHeight / PIXELS_PER_TWIP
 
         for glyph in text_record.glyphEntries:
             code_point = font.codeTable[glyph.index]
