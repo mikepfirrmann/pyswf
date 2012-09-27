@@ -711,6 +711,10 @@ class SVGExporter(BaseExporter):
         for glyph in text_record.glyphEntries:
             code_point = font.codeTable[glyph.index]
 
+            # Ignore control characters
+            if code_point in range(31):
+                continue
+
             use = self._e.use(unichr(code_point))
             use.set(XLINK_HREF, "#font_{0}_{1}".format(text_record.fontId, code_point))
 
