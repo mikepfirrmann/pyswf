@@ -2465,6 +2465,7 @@ class TagDefineButton2(DefinitionTag):
         self.actionOffset = data.readUI16()
         self.buttonCharacters = data.readBUTTONRECORDs(version = 2)
 
+        self.buttonActions = []
         if self.actionOffset:
             # If we have actions, seek to the first one.
             data.seek(offs + self.actionOffset)
