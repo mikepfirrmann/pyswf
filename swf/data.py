@@ -1388,7 +1388,7 @@ class SWFButtonRecord(_dumb_repr):
 
         if version == 2:
             self.colorTransform = data.readCXFORMWITHALPHA()
-            self.filterList = data.readFILTERLIST() if self.hasFilterList else None
+            self.filters = data.readFILTERLIST() if self.hasFilterList else None
             self.blendMode = data.readUI8() if self.hasBlendMode else 0
 
     def __str__(self):
