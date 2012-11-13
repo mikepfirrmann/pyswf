@@ -1,3 +1,7 @@
+from __future__ import print_function
+from decimal import *
+import sys
+
 action_stack = []
 action_variable_context = {"_global": {}}
 action_constant_pool = []
@@ -23,7 +27,7 @@ class Action(object):
         # Do nothing. Many Actions don't have a payload.
         # For the ones that have one we override this method.
         if self._length > 0:
-            print "skipping %d bytes..." % self._length
+            print("skipping {} bytes...".format(self._legth), file=sys.stderr)
             data.skip_bytes(self._length)
 
     def __repr__(self):
@@ -33,11 +37,11 @@ class ActionUnknown(Action):
     ''' Dummy class to read unknown actions '''
     def __init__(self, code, length):
         super(ActionUnknown, self).__init__(code, length)
-        print self
+        print(self, file=sys.stderr)
 
     def parse(self, data):
         if self._length > 0:
-            #print "skipping %d bytes..." % self._length
+            print("skipping {} bytes...".format(self._length), file=sys.stderr)
             data.skip_bytes(self._length)
 
     def __repr__(self):
@@ -224,6 +228,7 @@ class ActionGotoLabel(Action):
     def __repr__(self):
         return "[ActionGotoLabel] Code: 0x%x, Length: %d, Label: '%s'" % (self._code, self._length, self.label)
 
+# NOOP
 class ActionNextFrame(Action):
     CODE = 0x04
     def __init__(self, code, length):
@@ -251,6 +256,7 @@ class ActionSetTarget(Action):
     def parse(self, data):
         self.targetName = data.readString()
 
+# NOOP
 class ActionStop(Action):
     CODE = 0x07
     def __init__(self, code, length):
@@ -288,13 +294,142 @@ class ActionAdd(Action4):
     def __init__(self, code, length):
         super(ActionAdd, self).__init__(code, length)
 
+    def parse(self, data):
+        global action_stack
+
+        valueAStr = action_stack.pop()
+        valueBStr = action_stack.pop()
+
+        try: valueA = Decimal(valueAStr)
+        except TypeError:
+            valueA = 0
+        except InvalidOperation:
+            valueA = 0
+
+        try: valueB = Decimal(valueBStr)
+        except TypeError:
+            valueB = 0
+        except InvalidOperation:
+            valueB = 0
+
+        action_stack.append(valueA + valueB)
+
+    def __repr__(self):
+        return "[ActionAdd] Code: 0x%x, Length: %d" % (self._code, self._length)
+
 class ActionAnd(Action4):
-    CODE = 0x1
+    CODE = 0x10
     def __init__(self, code, length):
         super(ActionAnd, self).__init__(code, length)
 
+    def parse(self, data):
+        global action_stack
+
+        valueAStr = action_stack.pop()
+        valueBStr = action_stack.pop()
+
+        try: valueA = Decimal(valueAStr)
+        except TypeError:
+            valueA = 0
+        except InvalidOperation:
+            valueA = 0
+
+        try: valueB = Decimal(valueBStr)
+        except TypeError:
+            valueB = 0
+        except InvalidOperation:
+            valueB = 0
+
+        if self.version >= 5:
+            if valueA == 0 and valueB == 0:
+                action_stack.append(False)
+            else:
+                action_stack.append(True)
+        else:
+            if valueA == 0 and valueB == 0:
+                action_stack.append(0)
+            else:
+                action_stack.append(1)
+
     def __repr__(self):
         return "[ActionAnd] Code: 0x%x, Length: %d" % (self._code, self._length)
+
+class ActionEquals(Action4):
+    CODE = 0x0e
+    def __init__(self, code, length):
+        super(ActionEquals, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        valueAStr = action_stack.pop()
+        valueBStr = action_stack.pop()
+
+        try: valueA = Decimal(valueAStr)
+        except TypeError:
+            valueA = 0
+        except InvalidOperation:
+            valueA = 0
+
+        try: valueB = Decimal(valueBStr)
+        except TypeError:
+            valueB = 0
+        except InvalidOperation:
+            valueB = 0
+
+        if self.version >= 5:
+            if valueA == valueB:
+                action_stack.append(True)
+            else:
+                action_stack.append(False)
+        else:
+            if valueA == valueB:
+                action_stack.append(1)
+            else:
+                action_stack.append(0)
+
+    def __repr__(self):
+        return "[ActionAnd] Code: 0x%x, Length: %d" % (self._code, self._length)
+
+class ActionNot(Action4):
+    CODE = 0x12
+    def __init__(self, code, length):
+        super(ActionNot, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        result = 1 == data.readUI8()
+
+        valueStr = action_stack.pop()
+
+        try: value = Decimal(valueStr)
+        except TypeError:
+            value = 0
+        except InvalidOperation:
+            value = 0
+
+        # print("ActionNot: version: {}, valueStr: {}, value: {}".format(self.version, valueStr, value), file=sys.stderr)
+
+        # TODO: page 79: argument is to be evaluated as
+        # decimal, why convert to boolean in SWF <4?
+        #
+        # In SWF 5 files, the ActionNot operator converts its argument 
+        # to a Boolean value, and pushes a result of type Boolean. In 
+        # SWF 4 files, the argument and result are numbers.
+        if self.version >= 5:
+            if value == 0:
+                action_stack.append(True)
+            else:
+                action_stack.append(False)
+        else:
+            if value == 0:
+                action_stack.append(1)
+            else:
+                action_stack.append(0)
+
+    def __repr__(self):
+        return "[ActionNot] Code: 0x%x, Length: %d" % (self._code, self._length)
 
 class ActionPop(Action):
     CODE = 0x17
@@ -305,11 +440,79 @@ class ActionPop(Action):
     def parse(self, data):
         global action_stack
 
+        # ActionPop pops a value from the stack and discards it.
         action_stack.pop()
 
     def __repr__(self):
         return "[ActionPop] Code: 0x%x, Length: %d" % (self._code, self._length)
 
+class ActionDefineFunction2(Action7):
+    CODE = 0x8e
+
+    def __init__(self, code, length):
+        self.functionName = None
+        self.numParams = None
+        self.registerCount = None
+        self.preloadParentFlag = None
+        self.preloadRootFlag = None
+        self.suppressSuperFlag = None
+        self.preloadSuperFlag = None
+        self.suppressArgumentsFlag = None
+        self.preloadArgumentsFlag = None
+        self.suppressThisFlag = None
+        self.preloadThisFlag = None
+        self.reserved = None
+        self.preloadGlobalFlag = None
+        self.parameters = []
+        self.codeSize = None
+        super(ActionDefineFunction2, self).__init__(code, length)
+
+    def parse(self, data):
+
+        self.functionName = data.readString()
+        self.numParams = data.readUI16()
+        self.registerCount = data.readUI8()
+        self.preloadParentFlag = data.readUB(1)
+        self.preloadRootFlag = data.readUB(1)
+        self.suppressSuperFlag = data.readUB(1)
+        self.preloadSuperFlag = data.readUB(1)
+        self.suppressArgumentsFlag = data.readUB(1)
+        self.preloadArgumentsFlag = data.readUB(1)
+        self.suppressThisFlag = data.readUB(1)
+        self.preloadThisFlag = data.readUB(1)
+        self.reserved = data.readUB(7)
+        self.preloadGlobalFlag = data.readUB(1)
+
+        self.codeSize = data.readUI16()
+
+        codeData  = data.readbits(self.codeSize)
+        
+        for i in range(self.numParams):
+          self.parameters.append(data.readREGISTERPARAM())
+
+    def __repr__(self):
+        return "[ActionDefineFunction2] Code: 0x%x, Length: %d" % (self._code, self._length)
+
+
+# ActionPush pushes one or more values onto the stack. The Type field 
+# specifies the type of the value to be pushed.
+# 
+# If Type = 1, the value to be pushed is specified as a 32-bit IEEE 
+# single-precision little-endian floating-point value. PropertyIds 
+# are pushed as FLOATs. 
+# 
+# ActionGetProperty and ActionSetProperty use PropertyIds to access the
+# properties of named objects.  
+#
+# If Type = 4, the value to be pushed is a register number. Flash Player 
+# supports up to 4 registers. With the use of ActionDefineFunction2, 
+# up to 256 registers can be used.
+#
+# In the first field of ActionPush, the length in ACTIONRECORD defines 
+# the total number of Type and value bytes that follow the ACTIONRECORD 
+# itself. More than one set of Type and value fields may follow the 
+# first field, depending on the number of bytes that the length in 
+# ACTIONRECORD specifies.
 class ActionPush(Action):
     CODE = 0x96
 
@@ -331,13 +534,15 @@ class ActionPush(Action):
         super(ActionPush, self).__init__(code, length)
 
     def parse(self, data):
+        global action_constant_pool
+
         self.type = data.readUI8()
         if self.STRING == self.type:
             self.value = data.readString()
         elif self.FLOAT == self.type:
             self.value = data.readFLOAT()
         elif self.REGISTER == self.type:
-            self.vlaue = data.readUI8()
+            self.value = data.readUI8()
         elif self.BOOLEAN == self.type:
             self.value = 1 == data.readUI8()
         elif self.DOUBLE == self.type:
@@ -369,16 +574,56 @@ class ActionGetURL2(Action):
         self.reserved = 0
         self.loadTarget = 0
         self.loadVariables = 0
+        self.target = None
+        self.url = None
+
         super(ActionGetURL2, self).__init__(code, length)
 
     def parse(self, data):
+        global action_stack
+
         self.sendVarsMethod = data.readUB(2)
         self.reserved = data.readUB(4)
         self.loadTarget = 1 == data.readUB(1)
         self.loadVariables = 1 == data.readUB(1)
 
+        self.target = action_stack.pop()
+        self.url = action_stack.pop()
+
     def __repr__(self):
-        return "[ActionGetURL2] Code: 0x%x, Length: %d, SendVarsMethod: %d" % (self._code, self._length, self.methods[self.sendVarsMethod])
+      return "[ActionGetURL2] Code: 0x%x, Length: %d, SendVarsMethod: %d, Target: %s, URL: %s" % (self._code, self._length, self.methods[self.sendVarsMethod], self.target, self.url)
+
+class ActionIf(Action4):
+    CODE = 0x9d
+    def __init__(self, code, length):
+        self.name = None
+        self.value = None
+        super(ActionIf, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        self.branchOffset = data.readSI16()
+        conditionNumber = action_stack.pop()
+
+        # If Condition is true, BranchOffset bytes are added to the 
+        # instruction pointer in the execution stream.  The offset is 
+        # a signed quantity, enabling branches from -32768 bytes to
+        # 32767 bytes. An offset of 0 points to the action directly 
+        # after the ActionIf action.  When playing a SWF 4 file,
+        # Condition is not converted to a Boolean value and is instead 
+        # compared to 0, not true.
+
+        if self.version == 4:
+            if (bool(conditionNumber) == 0):
+                data.seek(self.branchOffset)
+        else:
+            if (bool(conditionNumber) == True):
+                data.seek(self.branchOffset)
+
+
+    def __repr__(self):
+        return "[ActionIf] Code: 0x%x, Length: %d, Name: %s, Value: %s" % (self._code, self._length, self.name, self.value)
 
 class ActionGetVariable(Action):
     CODE = 0x1c
@@ -389,13 +634,13 @@ class ActionGetVariable(Action):
 
     def parse(self, data):
         global action_stack
+        global action_variable_context
 
         self.name = action_stack.pop()
-        self.value = None
         if self.name in action_variable_context:
             self.value = action_variable_context[self.name]
         else:
-            # print "!!! Varible not found in context: {} !!!".format(self.name)
+            print("[ActionGetVariable]: Variable not found in context: {}".format(self.name), file=sys.stderr)
             pass
         action_stack.append(self.value)
 
@@ -410,14 +655,75 @@ class ActionSetVariable(Action):
         super(ActionSetVariable, self).__init__(code, length)
 
     def parse(self, data):
+        global action_stack
         global action_variable_context
 
         self.value = action_stack.pop()
         self.name = action_stack.pop()
+        # print("ActionSetVariable: value: {}, name: {}".format(self.value,self.name), file=sys.stderr)
         action_variable_context[self.name] = self.value
 
     def __repr__(self):
         return "[ActionSetVariable] Code: 0x%x, Length: %d, Name: %s, Value: %s" % (self._code, self._length, self.name, self.value)
+
+class ActionCallFunction(Action5):
+    CODE = 0x3d
+    def __init__(self, code, length):
+        self.functionName = None
+        self.numArgs = None
+        super(ActionCallFunction, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        self.functionName = action_stack.pop()
+        self.numArgs = action_stack.pop()
+        # print("functionName: {}, numArgs: {}".format(self.functionName, self.numArgs), file=sys.stderr)
+        try: self.numArgs = int(self.numArgs)
+        except TypeError:
+            return
+        except ValueError:
+            return
+        if not (self.numArgs is None):
+            for i in range(self.numArgs):
+                someArg = action_stack.pop()
+                # print("function {}, arg {}".format(self.functionName, someArg), file=sys.stderr) 
+
+        action_stack.append("TODO: {} function output".format(self.__class__.__name__))
+
+    def __repr__(self):
+        return "[ActionCallFunction] Code: 0x%x, Length: %d, FunctionName: %s, NumArgs: %d" % (self._code, self._length, self.functionName, self.numArgs)
+
+class ActionNewObject(Action5):
+    CODE = 0x40
+    def __init__(self, code, length):
+        self.objName = None
+        self.numArgs = None
+        self.args = []
+        super(ActionNewObject, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        self.objName = action_stack.pop()
+        self.numArgs = action_stack.pop()
+
+        try: self.numArgs = int(self.numArgs)
+        except TypeError:
+            return
+        except ValueError:
+            return
+        if not (self.numArgs is None):
+            for i in range(self.numArgs):
+                someArg = action_stack.pop()
+                # print("objName {}, arg {}".format(self.objName, someArg), file=sys.stderr)
+
+        action_stack.append("TODO: {} return value".format(self.__class__.__name__))
+
+    def __repr__(self):
+        return "[ActionNewObject] Code: 0x%x, Length: %d, Name: %s, Value: %s" % (self._code, self._length, self.objName, self.numArgs)
+
+
 
 # =========================================================
 # SWF 5 actions
@@ -433,16 +739,15 @@ class ActionEquals2(Action):
     def parse(self, data):
         global action_stack
 
-        self.name = action_stack.pop()
-        self.value = None
-        if self.name in action_variable_context:
-            self.value = action_variable_context[self.name]
-        else:
-            print "!!! Varible not found in context: {} !!!".format(self.name)
-        action_stack.append(self.value)
+        self.arg1 = action_stack.pop()
+        self.arg2 = action_stack.pop()
+
+        # The equality comparison algorithm from ECMA-262 Section 11.9.3 is applied.
+        # http://www.ecma-international.org/ecma-262/5.1/
+        action_stack.append("TODO: {} arg 1:2 equality result".format(self.__class__.__name__))
 
     def __repr__(self):
-        return "[ActionGetVariable] Code: 0x%x, Length: %d, Name: %s, Value: %s" % (self._code, self._length, self.name, self.value)
+        return "[ActionEquals2] Code: 0x%x, Length: %d, Arg1: %s, Arg2: %s" % (self._code, self._length, self.arg1, self.arg2)
 
 class ActionConstantPool(Action):
     CODE = 0x88
@@ -467,6 +772,80 @@ class ActionConstantPool(Action):
 
     def __repr__(self):
         return "[ActionConstantPool] Code: 0x%x, Length: %d, Count: %d, Constants: %s" % (self._code, self._length, self.count, self.constants)
+
+class ActionGetMember(Action):
+    CODE = 0x4e
+
+    def __init__(self, code, length):
+        self.memberName = None
+        self.obj = None
+        super(ActionGetMember, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        memberName = action_stack.pop()
+        obj = action_stack.pop()
+
+        if not (obj is None):
+          action_stack.append("TODO: {} member value".format(self.__class__.__name__))
+          #value = getattr(obj, memberName)
+          #action_stack.append(value)
+        else:
+          action_stack.append(None)
+
+    def __repr__(self):
+        return "[ActionGetMember] Code: 0x%x, Length: %d, MemberName: %s, Object: %s" % (self._code, self._length, self.memberName, self.obj)
+
+class ActionSetMember(Action):
+    CODE = 0x4f
+
+    def __init__(self, code, length):
+        self.newValue = None
+        self.objName = None
+        self.obj = None
+        super(ActionSetMember, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        self.newValue = action_stack.pop()
+        self.objName = action_stack.pop()
+        self.obj = action_stack.pop()
+
+        if not (obj is None):
+            #  print("ActionSetMember: obj: {}".format(self.obj), file=sys.stderr)
+            #  print("ActionSetMember: obj_name: {}".format(self.objName), file=sys.stderr)
+            #  print("ActionSetMember: newValue: {}".format(self.newValue), file=sys.stderr)
+            setattr(obj, objName, newValue)
+
+    def __repr__(self):
+        return "[ActionSetMember] Code: 0x%x, Length: %d, NewValue: %s, ObjName: %s" % (self._code, self._length, self.newValue, self.objName)
+
+class ActionBitRShift(Action):
+    CODE = 0x64
+
+    def __init__(self, code, length):
+        self.shiftCount = 0
+        self.value = None
+        super(ActionBitRShift, self).__init__(code, length)
+
+    def parse(self, data):
+        global action_stack
+
+        shiftCountStr = action_stack.pop()
+        self.shiftCount = int(shiftCountStr)
+        self.value = action_stack.pop()
+        #value = int(value)
+        #s32 = (value + 2**31) % 2**32 - 2**31  # // convert to signed 32-bit
+        #s32 = s32 >> shiftCount
+        #action_stack.append(s32)
+        action_stack.append("TODO: {} computed value".format(self.__class__.__name__))
+        #if not (obj is None):
+
+    def __repr__(self):
+      return "[ActionBitRShift] Code: 0x%x, Length: %d, ShiftCount: %d, Value: %s" % (self._code, self._length, self.shiftCount, self.value)
+
 
 # urgh! some 100 to go...
 
