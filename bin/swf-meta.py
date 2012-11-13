@@ -6,7 +6,6 @@ from swf.actions import ActionGetURL
 from swf.actions import ActionConstantPool
 from swf.movie import SWF
 from swf.tag import TagDefineButton2
-from swf.tag import TagDoAction
 import sys
 import argparse
 import yaml
