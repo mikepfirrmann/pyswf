@@ -1437,3 +1437,18 @@ class SWFExport(_dumb_repr):
 
     def __str__(self):
         return "[SWFExport %d as %r]" % (self.characterId, self.characterName)
+
+class SWFRegisterParam(_dumb_repr):
+    def __init__(self, data=None, version=0):
+        self.register = None
+        self.paramName = None
+        if not data is None:
+            self.parse(data, version)
+
+    def parse(self, data, version):
+        self.register = data.readUI8()
+        self.paramName = data.readString()
+
+    def __str__(self):
+        return "[SWFRegisterParam %s with param %s]" % (self.register, self.paramName)
+
