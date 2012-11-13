@@ -316,7 +316,7 @@ class SWFStream(object):
         action = SWFActionFactory.create(actionCode, actionLength)
         action.parse(self)
         return action
-
+    
     def readACTIONRECORDs(self):
         """ Read zero or more button records (zero-terminated) """
         out = []
@@ -452,6 +452,11 @@ class SWFStream(object):
             count = self.readUI16()
         kind = self.readMORPHLINESTYLE if version == 1 else self.readMORPHLINESTYLE2
         return [kind() for _ in xrange(count)]
+
+
+    def readREGISTERPARAM(self, version):
+        """ Read a SWFRegisterParam """
+        return SWFRegisterParam(self, version)
 
     def readraw_tag(self):
         """ Read a SWFRawTag """
