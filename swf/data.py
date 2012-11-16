@@ -1,5 +1,7 @@
+from __future__ import print_function
 from consts import *
 from utils import *
+import sys
 
 class _dumb_repr(object):
     def __repr__(self):
@@ -15,7 +17,7 @@ class SWFRawTag(_dumb_repr):
         self.header = s.readtag_header()
         self.pos_content = s.tell()
         s.f.seek(pos)
-        #self.bytes = s.f.read(self.header.tag_length())
+        #self.bytes = s.f.read(self.header.header_length)
         #s.f.seek(self.pos_content)
 
 class SWFStraightEdge(_dumb_repr):
@@ -1226,13 +1228,31 @@ class SWFClipActionRecord(_dumb_repr):
             self.parse(data, version)
 
     def parse(self, data, version):
-        self.actions = []
         self.eventFlags = data.readCLIPEVENTFLAGS(version)
-        data.readUI32() # actionRecordSize, not needed here
+        actionRecordSize = data.readUI32() # actionRecordSize, not needed here
         if self.eventFlags.keyPressEvent:
             self.keyCode = data.readUI8()
+
+        #data.skip_bytes(actionRecordSize)
+        #bodyEndPosition = data.tell() + actionRecordSize
+#        while data.tell() < bodyEndPosition:
+#            print("loop: position {} of {}".format(data.tell(), bodyEndPosition), file=sys.stderr)
+#            action = data.readACTIONRECORD()
+#            if (action is None):
+#                #pass
+#                break
+#                #raise TypeError, "oh hell no"
+#            else:
+#                print("end: clipaction: {}, of {}".format(action, data.tell(), bodyEndPosition), file=sys.stderr)
+#                self.actions.append(action)
+#
+#        if data.tell() != bodyEndPosition:
+#            print("SWFClipActionRecord: (repositioning after final read: {} -> {})".format(data.tell(), bodyEndPosition), file=sys.stderr)
+#            data.seek(bodyEndPosition)
+
         action = data.readACTIONRECORD()
         while not action is None:
+            print("clipaction: {}, actionRecordSize: {}".format(action, actionRecordSize), file=sys.stderr)
             self.actions.append(action)
             action = data.readACTIONRECORD()
 

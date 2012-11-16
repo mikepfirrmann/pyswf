@@ -1,3 +1,4 @@
+from __future__ import print_function
 from consts import *
 from data import *
 from utils import *
@@ -159,28 +160,28 @@ class SWFTimelineContainer(DefinitionTag):
         while type(tag) != TagEnd:
             tag = self.parse_tag(data)
             if tag:
-                #print tag.name
+                print(tag, file=sys.stderr)
                 self.tags.append(tag)
 
     def parse_tag(self, data):
         pos = data.tell()
         eof = (pos > self.file_length)
         if eof:
-            print "WARNING: end of file encountered, no end tag."
+            print("WARNING: end of file encountered, no end tag.", file=sys.stderr)
             return TagEnd()
         raw_tag = data.readraw_tag()
         tag_type = raw_tag.header.type
         tag = TagFactory.create(tag_type)
         if tag is not None:
-            #print tag.name
             data.seek(raw_tag.pos_content)
             data.reset_bits_pending()
             tag.parse(data, raw_tag.header.content_length, tag.version)
+            #print(tag, file=sys.stderr)
             #except:
-            #    print "=> tag_error", tag.name
+            #    print("=> tag_error", tag_name, file=sys.stderr)
             data.seek(pos + raw_tag.header.tag_length)
         else:
-            print "[WARNING] unhandled tag %s" % (hex(tag_type))
+            print("[WARNING] unhandled tag %s" % (hex(tag_type)), file=sys.stderr)
             data.skip_bytes(raw_tag.header.tag_length)
         data.seek(pos + raw_tag.header.tag_length)
         return tag
@@ -214,9 +215,9 @@ class SWFTimelineContainer(DefinitionTag):
         d = {}
         for t in self.all_tags_of_type(DefinitionTag, recurse_into_sprites = False):
             if t.characterId in d:
-                print 'redefinition of characterId %d:' % (t.characterId)
-                print '  was:', d[t.characterId]
-                print 'redef:', t
+                print('redefinition of characterId %d:' % (t.characterId), file=sys.stderr)
+                print('  was:', d[t.characterId], file=sys.stderr)
+                print('redef:', t, file=sys.stderr)
                 raise ValueError('illegal redefinition of character')
             d[t.characterId] = t
         return d
@@ -1120,6 +1121,27 @@ class TagPlaceObject2(TagPlaceObject):
     def version(self):
         return 3
 
+    def __str__(self):
+        s = super(TagPlaceObject2, self).__str__() + " " + \
+            "Depth: %d, " % self.depth + \
+            "CharacterID: %d" % self.characterId
+        if self.hasName:
+            s+= ", InstanceName: %s" % self.instanceName
+        if self.hasMatrix:
+            s += ", Matrix: %s" % self.matrix.__str__()
+        if self.hasClipDepth:
+            s += ", ClipDepth: %d" % self.clipDepth
+        if self.hasColorTransform:
+            s += ", ColorTransform: %s" % self.colorTransform.__str__()
+        if self.hasFilterList:
+            s += ", Filters: %d" % len(self.filters)
+        if self.hasBlendMode:
+            s += ", Blendmode: %d" % self.blendMode
+        if self.hasClipActions:
+            s += ", ClipActions: %r" % self.clipActions
+        return s
+
+
 class TagRemoveObject2(TagRemoveObject):
     """
     The RemoveObject2 tag removes the character at the specified depth
@@ -1371,6 +1393,13 @@ class TagFrameLabel(Tag):
         if (data.tell() - start) < length:
             data.readUI8() # Named anchor flag, always 1
             self.namedAnchorFlag = True
+
+    def __str__(self):
+        s = super(TagFrameLabel, self).__str__() + " " + \
+            "FrameName: %s" % self.frameName
+        return s
+
+
 
 class TagDefineMorphShape(DefinitionTag):
     """
@@ -2335,6 +2364,9 @@ class TagDoInitAction(Tag):
         self.spriteId = data.readUI16()
         self.actions = data.readACTIONRECORDs()
 
+    def __str__(self):
+        return "[%02d:%s] spriteId: %d" % (self.type, self.name, self.spriteId)
+
 class TagDefineEditText(DefinitionTag):
     """
     The DefineEditText tag defines a dynamic text object, or text field.
@@ -2632,4 +2664,4 @@ if __name__ == '__main__':
         if k.startswith('Tag') and hasattr(v, 'TYPE'):
             y = TagFactory.create(v.TYPE)
             if y == None:
-                print v.__name__, 'missing', 'for', v.TYPE
+                print(v.__name__, 'missing', 'for', v.TYPE, file=sys.stderr)

@@ -1,3 +1,4 @@
+from __future__ import print_function
 import struct, math
 from data import *
 from actions import *
@@ -163,6 +164,11 @@ class SWFStream(object):
                         result = (result & 0xfffffff) | (self.readUI8() << 28)
         return result
 
+    def readDOUBLE(self):
+        """ Read a double """
+        self.reset_bits_pending();
+        return struct.unpack('<d',self.f.read(8))[0]
+
     def readFLOAT(self):
         """ Read a float """
         self.reset_bits_pending();
@@ -310,11 +316,13 @@ class SWFStream(object):
             if 0 == actionCode:
                 return None
         except:
+            print("WARN: could not parse actionCode! {}".format(self), file=sys.stderr)
             return None
 
         actionLength = self.readUI16() if actionCode >= 0x80 else 0
         action = SWFActionFactory.create(actionCode, actionLength)
         action.parse(self)
+        print(action, file=sys.stderr)
         return action
     
     def readACTIONRECORDs(self):
@@ -366,6 +374,9 @@ class SWFStream(object):
     def readSYMBOL(self):
         """ Read a SWFSymbol """
         return SWFSymbol(self)
+
+    def readBoolean(self):
+      return (self.readUB(1) == 1)
 
     def readString(self):
         """ Read a string """
