@@ -54,7 +54,7 @@ for tag in (TagDefineButton, TagDefineButton2):
             for action in buttonAction.actions:
                 result = Result(button.name)
                 if isinstance(action, ActionGetURL):
-                    result.setUrl(action.urlString)
+                    result.setUrl(action.url)
                 elif isinstance(action, ActionConstantPool):
                     for constant in action.constants:
                         result.addConstant(constant)
